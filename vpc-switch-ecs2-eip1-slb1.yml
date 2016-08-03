@@ -1,0 +1,446 @@
+# --------------------------------------------------------------------------
+#  阿里云：资源编排 ROS - 模板
+# --------------------------------------------------------------------------
+#
+#  在这个文件里描述自己需要的阿里云服务资源，比如云服务器，负载均衡等等。说清楚这些资源之间
+#  的依赖关系，比如负载均衡需要云服务器的 ID ，这样创建的云服务器会作为负载均衡的后端服务器。
+#  然后把这个文件交给阿里云的资源编排界面去运行一下，完成以后，你会得以一套完整的资源架构。
+#
+#
+
+ROSTemplateFormatVersion: '2015-09-01'
+Description: '资源编排 by ninghao.net'
+
+# --------------------------------------------------------------------------
+#  参数 Parameters
+# --------------------------------------------------------------------------
+#
+#  在参数区域里，定义的是资源编排模板里的参数，用户在使用模板创建资源的时候可以为这些参数
+#  设置对应的值。这些参数也有自己默认的值。
+#
+#
+
+Parameters:
+# 专有网络：VPC
+  VpcName:
+    Type: 'String'
+    Default: 'Neverland'
+    Description: '专有网络的名字'
+  VpcCidrBlock:
+    Type: 'String'
+    AllowedValues:
+      - '10.0.0.0/8'
+      - '172.16.0.0/12'
+      - '192.168.0.0/16'
+    Default: '10.0.0.0/8'
+    Description: '选择专有网络的网段'
+  VpcDescription:
+    Type: 'String'
+    Default: '梦幻岛'
+    Description: '描述一下专有网络'
+  VSwitchCidrBlock:
+    Type: 'String'
+    Default: '10.1.0.0/16'
+    Description: '设置交换机网段'
+
+# 云服务器：ECS
+  Password:
+    Type: 'String'
+    Default: 'PASSWORD'
+    NoEcho: true
+    Description: '设置 ECS 服务器 root 用户的密码'
+    MinLength: 8
+    MaxLength: 30
+    ConstraintDescription: '8 - 30 个字符'
+  InstanceType:
+    Type: 'String'
+    Default: 'ecs.s1.small'
+    Description: '设置 ECS 服务器实例的规格'
+  ImageId:
+    Type: 'String'
+    Default: 'centos7u2_64_40G_cloudinit_20160520.raw'
+    Description: '设置 ECS 服务器实例的镜像 ID'
+  IoOptimized:
+    Type: 'String'
+    Default: 'none'
+    AllowedValues:
+      - none
+      - optimized
+  NetworkType:
+    Type: 'String'
+    Default: 'vpc'
+    AllowedValues:
+      - vpc
+      - classic
+  InternetChargeType:
+    Type: 'String'
+    Default: 'PayByTraffic'
+    AllowedValues:
+      - PayByTraffic
+      - PayByBandwidth
+    Description: '设置公网流量付费方式'
+  ZoneId:
+    Type: 'String'
+    Default: 'cn-shenzhen-a'
+    Description: '设置实例的地域'
+  SystemDiskSize:
+    Type: 'Number'
+    Default: 40
+    MaxValue: 500
+    MinValue: 40
+    ConstraintDescription: '40 - 500'
+    Description: '设置服务器系统盘的大小'
+  Node1InstanceName:
+    Type: 'String'
+    Default: 'node1'
+    Description: '设置 ECS 服务器的名字'
+  Node1InstanceDescription:
+    Type: 'String'
+    Default: '云服务器 node1'
+    Description: '设置 ECS 服务器的描述'
+  Node1HostName:
+    Type: 'String'
+    Default: 'node1'
+    Description: '设置 ECS 服务器的主机名'
+  Node1PrivateIpAddress:
+    Type: 'String'
+    Default: '10.1.0.1'
+    Description: '设置 ECS 服务器的私有 IP 地址'
+  Node2InstanceName:
+    Type: 'String'
+    Default: 'node2'
+    Description: '设置 ECS 服务器的名字'
+  Node2InstanceDescription:
+    Type: 'String'
+    Default: '云服务器 node2'
+    Description: '设置 ECS 服务器的描述'
+  Node2HostName:
+    Type: 'String'
+    Default: 'node2'
+    Description: '设置 ECS 服务器的主机名'
+  Node2PrivateIpAddress:
+    Type: 'String'
+    Default: '10.1.0.2'
+    Description: '设置 ECS 服务器的私有 IP 地址'
+
+# 弹性公网 IP：EIP
+  EipBandWidth:
+    Type: 'Number'
+    Default: 3
+    Description: '设置弹性公网 IP 的带宽'
+
+# --------------------------------------------------------------------------
+#  映射 Mappings
+# --------------------------------------------------------------------------
+#
+#  可以在映射区域定义一些名值对的数据，然后在其它的地方可以利用数据的名字得到对应的值，配合
+#  使用资源编排的内部函数 Fn::FindInMap
+#
+#
+
+Mappings:
+
+# --------------------------------------------------------------------------
+#  资源 Rescources
+# --------------------------------------------------------------------------
+#
+#  在资源区域定义需要的资源，比如专有网络，交换机，云服务器，负载均衡等等。
+#
+#
+
+Resources:
+# 创建一个专有网络
+  Vpc:
+    Type: 'ALIYUN::ECS::VPC'
+    Properties:
+      VpcName:
+        Ref: VpcName
+      CidrBlock:
+        Ref: VpcCidrBlock
+      Description:
+        Ref: VpcDescription
+
+# 在专有网络下面添加一个交换机
+  VSwitch:
+    Type: 'ALIYUN::ECS::VSwitch'
+    DependsOn: 'Vpc'
+    Properties:
+      VpcId:
+        Fn::GetAtt:
+          - Vpc
+          - VpcId
+      ZoneId:
+        Ref: ZoneId
+      CidrBlock:
+        Ref: VSwitchCidrBlock
+      Description: '第一台交换机'
+      VSwitchName: 'island-1'
+
+# 在专有网络下，添加一条 SNAT 路由
+  RouteSnat:
+    Type: 'ALIYUN::ECS::Route'
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      RouteId:
+        Fn::GetAtt:
+          - Vpc
+          - VRouterId
+      RouteTableId:
+        Fn::GetAtt:
+          - Vpc
+          - RouteTableId
+      NextHopType: 'Instance'
+      NextHopId:
+        Fn::GetAtt:
+          - Node1
+          - InstanceId
+
+# 创建一个默认的安全组
+  DefaultSecurityGroup:
+    Type: 'ALIYUN::ECS::SecurityGroup'
+    DependsOn: 'Vpc'
+    Properties:
+      Description: '默认安全组'
+      VpcId:
+        Fn::GetAtt:
+          - Vpc
+          - VpcId
+      SecurityGroupEgress:
+        - IpProtocol: all
+          NicType: internet
+          PortRange: '-1/-1'
+          DestCidrIp: 0.0.0.0/0
+          Priority: 100
+      SecurityGroupIngress:
+        - IpProtocol: all
+          NicType: internet
+          PortRange: '-1/-1'
+          SourceCidrIp: 0.0.0.0/0
+          Priority: 100
+
+# 定义两台 ECS 云服务器
+  Node1:
+    Type: 'ALIYUN::ECS::Instance'
+    DependsOn: 'Vpc'
+    Properties:
+      PrivateIpAddress:
+        Ref: Node1PrivateIpAddress
+      InstanceType:
+        Ref: InstanceType
+      ImageId:
+        Ref: ImageId
+      SecurityGroupId:
+        Fn::GetAtt:
+          - DefaultSecurityGroup
+          - SecurityGroupId
+      Password:
+        Ref: Password
+      ZoneId:
+        Ref: ZoneId
+      VSwitchId:
+        Fn::GetAtt:
+          - VSwitch
+          - VSwitchId
+      VpcId:
+        Fn::GetAtt:
+          - Vpc
+          - VpcId
+      IoOptimized:
+        Ref: IoOptimized
+      SystemDiskSize:
+        Ref: SystemDiskSize
+      InstanceName:
+        Ref: Node1InstanceName
+      HostName:
+        Ref: Node1HostName
+      Description:
+        Ref: Node1InstanceDescription
+      Tags:
+       -
+         Key: 'swarm'
+         Value: 'swarm'
+  Node2:
+    Type: 'ALIYUN::ECS::Instance'
+    DependsOn: 'Vpc'
+    Properties:
+      PrivateIpAddress:
+        Ref: Node2PrivateIpAddress
+      InstanceType:
+        Ref: InstanceType
+      ImageId:
+        Ref: ImageId
+      SecurityGroupId:
+        Fn::GetAtt:
+          - DefaultSecurityGroup
+          - SecurityGroupId
+      Password:
+        Ref: Password
+      ZoneId:
+        Ref: ZoneId
+      VSwitchId:
+        Fn::GetAtt:
+          - VSwitch
+          - VSwitchId
+      VpcId:
+        Fn::GetAtt:
+          - Vpc
+          - VpcId
+      IoOptimized:
+        Ref: IoOptimized
+      SystemDiskSize:
+        Ref: SystemDiskSize
+      InstanceName:
+        Ref: Node2InstanceName
+      HostName:
+        Ref: Node2HostName
+      Description:
+        Ref: Node2InstanceDescription
+      Tags:
+       -
+         Key: 'swarm'
+         Value: 'swarm'
+
+# 创建一个负载均衡，把上面定义的 ECS 加入进来
+  LoadBalancer:
+    Type: 'ALIYUN::SLB::LoadBalancer'
+    DependsOn:
+      - 'Node1'
+      - 'Node2'
+    Properties:
+      AddressType: 'internet'
+      InternetChargeType: 'paybytraffic' # or paybybandwidth
+      LoadBalancerName: 'slb'
+      Bandwidth: 3
+  LoadBalancerListener:
+    Type: 'ALIYUN::SLB::Listener'
+    DependsOn: 'LoadBalancer'
+    Properties:
+      LoadBalancerId:
+        Fn::GetAtt:
+          - LoadBalancer
+          - LoadBalancerId
+      ListenerPort: 80
+      BackendServerPort: 8080
+      Protocol: 'http'
+      Scheduler: 'wrr'
+      Bandwidth: 3
+      HealthCheck:
+        Domain: ''
+        URI: ''
+        HealthyThreshold: 3
+        UnhealthyThreshold: 3
+        Interval: 2
+        Timeout: 5
+        HttpCode: 'http_2xx,http_3xx,http_4xx,http_5xx'
+  LoadBalancerBackendEcs:
+    Type: 'ALIYUN::SLB::BackendServerAttachment'
+    Properties:
+      LoadBalancerId:
+        Fn::GetAtt:
+          - LoadBalancer
+          - LoadBalancerId
+      BackendServers:
+        - ServerId:
+            Fn::GetAtt:
+              - Node1
+              - InstanceId
+          Weight: 100
+        - ServerId:
+            Fn::GetAtt:
+              - Node2
+              - InstanceId
+          Weight: 100
+
+# 申请一个弹性公网 IP，绑定到 Node1 这台云服务器上
+  Eip:
+    Type: 'ALIYUN::ECS::EIP'
+    Properties:
+      InternetChargeType:
+        Ref: InternetChargeType
+      Bandwidth:
+        Ref: EipBandWidth
+  EipAssociation:
+    Type: 'ALIYUN::ECS::EIPAssociation'
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - Eip
+          - AllocationId
+      InstanceId:
+        Fn::GetAtt:
+          - Node1
+          - InstanceId
+
+# --------------------------------------------------------------------------
+#  输出 Outputs
+# --------------------------------------------------------------------------
+#
+#  在输出区域定义的是在资源栈概览页面上显示的信息，比如创建的云服务器的 ID，IP 等等，都可以
+#  让它们在输出区域里显示。每种资源都有一些 Attributes（属性），资源创建成功以后，就可以使
+#  用内部函数 Fn::GetAtt 得到资源的这些 Attributes 的值。
+#
+#
+
+Outputs:
+  VpcId:
+    Description: '专有网络 ID'
+    Value:
+      Fn::GetAtt:
+        - Vpc
+        - VpcId
+  VRouterId:
+    Description: '专有网络路由器 ID'
+    Value:
+      Fn::GetAtt:
+        - Vpc
+        - VRouterId
+  VSwitchIdIsland1:
+    Description: 'island-1 交换机的 ID'
+    Value:
+      Fn::GetAtt:
+        - VSwitch
+        - VSwitchId
+  SecurityGroupId:
+    Description: '安全组 ID'
+    Value:
+      Fn::GetAtt:
+        - DefaultSecurityGroup
+        - SecurityGroupId
+  EipAddress:
+    Description: '弹性公网 IP 地址'
+    Value:
+      Fn::GetAtt:
+        - Eip
+        - EipAddress
+  AllocationId:
+    Description: '分配 IP 地址的 ID'
+    Value:
+      Fn::GetAtt:
+        - Eip
+        - AllocationId
+  NodeZoneId:
+    Description: '云服务器地域'
+    Value:
+      Fn::GetAtt:
+        - Node1
+        - ZoneId
+  Node1:
+    Description: 'Node1 节点'
+    Value:
+      Fn::GetAtt:
+        - Node1
+        - InstanceId
+  Node2:
+    Description: 'Node2 节点'
+    Value:
+      Fn::GetAtt:
+        - Node2
+        - InstanceId
+
+
+# earth ...
+# # # # #
+# # # #
+# # #
+# #
+#
